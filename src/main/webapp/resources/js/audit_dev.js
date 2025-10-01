@@ -272,85 +272,93 @@ var MyWidget = SuperWidget.extend({
       try { if ($sel.data("select2")) $sel.select2("destroy"); } catch (_) {}
       $sel.prop("disabled", true).html('<option value="">Carregando...</option>');
     
-      $.getJSON("/api/public/ecm/dataset/search", { datasetId: "ZMDAUDITORIA_PACIENTES" })
-        .done((resp) => {
-          console.log("Pacientes dataset:", resp);
-    
-          const rows = Array.isArray(resp?.content) ? resp.content : [];
-          if (!rows.length) {
-            $sel.html('<option value="">Nenhum paciente encontrado</option>');
-            return;
+      const finalize = () => {
+        $sel.prop("disabled", false);
+        try { this.esconderLoading(); } catch (_) {}
+      };
+
+      try {
+        const sql = `SELECT DISTINCT
+        COLIGADA AS CODCOLIGADA,
+        PRONTUARIO,
+        CODPACIENTE,
+        CODATENDIMENTO,
+        PARCIAL AS SEQPARCIAL,
+        NOMEPACIENTE,
+        CONVENIO AS SIGLA
+FROM ZMD_BC_CONTAS
+ORDER BY NOMEPACIENTE, COLIGADA, PRONTUARIO, CODPACIENTE, CODATENDIMENTO, PARCIAL, CONVENIO;`;
+        console.log("[carregarPacientesInput] SQL executada:\n", sql);
+
+        const rows = this.queryRMConfig(sql) || [];
+        if (!rows.length) {
+          $sel.html('<option value="">Nenhum paciente encontrado</option>');
+          finalize();
+          return;
+        }
+
+        const seen = new Set();
+        const pacientes = [];
+        for (let i = 0; i < rows.length; i++) {
+          const r = rows[i] || {};
+          const key = [r.CODCOLIGADA, r.CODPACIENTE, r.CODATENDIMENTO, r.SEQPARCIAL].join("|");
+          if (!seen.has(key)) { seen.add(key); pacientes.push(r); }
+        }
+
+        $sel.empty().append('<option value="">Selecione uma Conta em Elaboração</option>');
+
+        const CHUNK = 400;
+        let idx = 0;
+
+        const appendChunk = () => {
+          const end = Math.min(idx + CHUNK, pacientes.length);
+          const frag = document.createDocumentFragment();
+
+          for (let j = idx; j < end; j++) {
+            const p = pacientes[j] || {};
+            const opt = document.createElement("option");
+
+            opt.value = String(p.CODPACIENTE || "");
+            opt.text  =
+              `${p.NOMEPACIENTE || ""} | Pront: ${p.PRONTUARIO || ""}` +
+              ` | Cod Paciente: ${p.CODPACIENTE || ""}` +
+              ` | Coligada: ${p.CODCOLIGADA || ""}` +
+              ` | Atendimento: ${p.CODATENDIMENTO || ""}` +
+              ` | Parcial: ${p.SEQPARCIAL || ""}`;
+
+            opt.setAttribute("data-nomepaciente",   p.NOMEPACIENTE   || "");
+            opt.setAttribute("data-prontuario",     p.PRONTUARIO     || "");
+            opt.setAttribute("data-coligada",       p.CODCOLIGADA    || "");
+            opt.setAttribute("data-codatendimento", p.CODATENDIMENTO || "");
+            opt.setAttribute("data-parcial",        p.SEQPARCIAL     || "");
+
+            frag.appendChild(opt);
           }
-    
-          // Dedup por combinação das chaves
-          const seen = new Set();
-          const pacientes = [];
-          for (let i = 0; i < rows.length; i++) {
-            const r = rows[i] || {};
-            const key = [r.CODCOLIGADA, r.CODPACIENTE, r.CODATENDIMENTO, r.SEQPARCIAL].join("|");
-            if (!seen.has(key)) { seen.add(key); pacientes.push(r); }
+
+          $sel[0].appendChild(frag);
+          idx = end;
+
+          if (idx < pacientes.length) {
+            setTimeout(appendChunk, 0);
+          } else {
+            try {
+              $sel.select2({
+                placeholder: "Selecione uma Conta em Elaboração",
+                allowClear: true,
+                minimumInputLength: 0,
+                width: "100%"
+              });
+            } catch (e) { console.warn("select2 init:", e); }
+            finalize();
           }
-    
-          // Placeholder inicial
-          $sel.empty().append('<option value="">Selecione uma Conta em Elaboração</option>');
-    
-          // Inserção em lotes para manter a UI responsiva
-          const CHUNK = 400;
-          let idx = 0;
-    
-          const appendChunk = () => {
-            const end = Math.min(idx + CHUNK, pacientes.length);
-            const frag = document.createDocumentFragment();
-    
-            for (let j = idx; j < end; j++) {
-              const p = pacientes[j] || {};
-              const opt = document.createElement("option");
-    
-              opt.value = String(p.CODPACIENTE || "");
-              opt.text  =
-                `${p.NOMEPACIENTE || ""} | Pront: ${p.PRONTUARIO || ""}` +
-                ` | Cod Paciente: ${p.CODPACIENTE || ""}` +
-                ` | Coligada: ${p.CODCOLIGADA || ""}` +
-                ` | Atendimento: ${p.CODATENDIMENTO || ""}` +
-                ` | Parcial: ${p.SEQPARCIAL || ""}`;
-    
-              // atributos consumidos depois
-              opt.setAttribute("data-nomepaciente",   p.NOMEPACIENTE   || "");
-              opt.setAttribute("data-prontuario",     p.PRONTUARIO     || "");
-              opt.setAttribute("data-coligada",       p.CODCOLIGADA    || "");
-              opt.setAttribute("data-codatendimento", p.CODATENDIMENTO || "");
-              opt.setAttribute("data-parcial",        p.SEQPARCIAL     || "");
-    
-              frag.appendChild(opt);
-            }
-    
-            $sel[0].appendChild(frag);
-            idx = end;
-    
-            if (idx < pacientes.length) {
-              // cede o controle para o browser → evita travar
-              setTimeout(appendChunk, 0);
-            } else {
-              // inicializa o Select2 ao final (uma vez só)
-              try {
-                $sel.select2({
-                  placeholder: "Selecione uma Conta em Elaboração",
-                  allowClear: true,
-                  minimumInputLength: 0,   // permite abrir sem digitar
-                  width: "100%"
-                });
-              } catch (e) { console.warn("select2 init:", e); }
-              $sel.prop("disabled", false);
-            }
-          };
-    
-          // começa assíncrono
-          setTimeout(appendChunk, 0);
-        })
-        .fail(() => {
-          $sel.html('<option value="">Erro ao carregar</option>');
-        })
-        .always(() => this.esconderLoading());
+        };
+
+        appendChunk();
+      } catch (err) {
+        console.error("[carregarPacientesInput] Erro ao carregar pacientes via SQL:", err);
+        $sel.html('<option value="">Erro ao carregar pacientes</option>');
+        finalize();
+      }
     },
     selecionarTodos(checkbox) {
         document.querySelectorAll("#rulesTable .ruleCheckbox").forEach(cb => cb.checked = checkbox.checked);
@@ -439,7 +447,7 @@ var MyWidget = SuperWidget.extend({
             </button>
           </td>
           <td style="text-align:center; width:60px;">${rule.IDREGRAS || ""}</td>
-          <td title="${rule.TITULOREGRA || ''}">${rule.TITULOREGRA || ""}</td>
+          <td title="${escHtml(rule.DESCRICAOREGRA || rule.TITULOREGRA || '')}">${rule.TITULOREGRA || ""}</td>
           <td title="${natureza}">${natureza}</td>
           <td style="text-align:center;">${rule.TOTALOCORRENCIAS || 0}</td>
           <td style="text-align:center;">
@@ -856,8 +864,7 @@ abrirModalNovaRegra: function () {
       console.log("[NovaRegra] SQL ou resposta gerada:", sqlGerado);
 
       // 2) INSERT da regra no RM
-      const now       = new Date();
-      const dataHora  = now.toISOString().slice(0, 19).replace('T', ' ') + '.000';
+      const usuarioCriacao = escSql(self.usuario || WCMAPI.userLogin || WCMAPI.userCode || '');
       const insertSQL = `
       INSERT INTO ZMD_BC_REGRAS (
       TITULOREGRA, DESCRICAOREGRA, SQLREGRA, RECCREATEDBY, RECCREATEDON, ATIVO
@@ -865,8 +872,8 @@ abrirModalNovaRegra: function () {
       '${escSql(titulo)}',
       '${escSql(descricao)}',
       '${escSql(sqlGerado)}',
-      '${escSql(self.usuario)}',
-      '${dataHora}',
+      '${usuarioCriacao}',
+      GETDATE(),
       2
       )
       `;
@@ -2405,51 +2412,120 @@ abrirModalNovaRegra: function () {
       
       // monta cada bloco (regra)
       const montarPara = (regra) => {
-        const fields = [
-        "IDREGRA", "COLIGADA", "PRONTUARIO", "CODPACIENTE", "CODATENDIMENTO",
-        "PARCIAL", "NOMEPACIENTE", "TOTAL", "TOTAL_DESCARTADOS", "TOTAL_INCONSISTENTES",
-        // "IDSRESULTADO" removido - não mais necessário
-        ];
-      
-        const cons = [];
-        cons.push(DatasetFactory.createConstraint("IDREGRA", String(regra.idRegra), String(regra.idRegra), ConstraintType.MUST));
-        if (hasVal(codcoligada))    cons.push(DatasetFactory.createConstraint("COLIGADA",    String(codcoligada),    String(codcoligada),    ConstraintType.MUST));
-        if (hasVal(codPaciente))    cons.push(DatasetFactory.createConstraint("CODPACIENTE", String(codPaciente),   String(codPaciente),   ConstraintType.MUST));
-        if (hasVal(codatendimento)) cons.push(DatasetFactory.createConstraint("CODATENDIMENTO", String(codatendimento), String(codatendimento), ConstraintType.MUST));
-        if (hasVal(seqparcial))     cons.push(DatasetFactory.createConstraint("PARCIAL",     String(seqparcial),    String(seqparcial),    ConstraintType.MUST));
-      
-        let ds;
-        try { ds = DatasetFactory.getDataset("COUNT_OCORRENCIAS_POR_CONTA_ELAB_NOVA", fields, cons, null); }
-        catch (e) { console.error("Erro dataset COUNT_OCORRENCIAS_POR_CONTA_ELAB_NOVA para regra", regra.idRegra, e); }
-      
-        const vals = (ds && ds.values) ? ds.values : [];
-        const dataRows = vals.map(row => {
-        const C = toInt(row.COLIGADA);
-        const P = toInt(row.CODPACIENTE);
-        const A = toInt(row.CODATENDIMENTO);
-        const S = toInt(row.PARCIAL);
-      
-        return [
-          C ?? "",
-          row.PRONTUARIO || "",
-          P ?? "",
-          A ?? "",
-          S ?? "",
-          row.NOMEPACIENTE || "",
-          parseInt(row.TOTAL || 0),
-          parseInt(row.TOTAL_DESCARTADOS || 0),
-          parseInt(row.TOTAL_INCONSISTENTES || 0),
-          `<a href="#" class="detalhe-prescricao"
-           data-codcoligada="${C ?? ''}" data-codpaciente="${P ?? ''}"
-           data-codatendimento="${A ?? ''}" data-seqparcial="${S ?? ''}"
-           data-idregra="${regra.idRegra || ''}"
-           title="Ver Detalhes"><i class="fluigicon fluigicon-eye-open icon-md"></i></a>`
-        ];
-        });
-      
-        const tbody = document.querySelector(`#tbl-regra-${regra.idRegra} tbody`);
-        if (tbody) tbody.innerHTML = "";
-        initDT(regra.idRegra, dataRows);
+        console.group(`[ExecutarRegrasPaciente] Regra ${regra.idRegra}`);
+        try {
+          const idNum = parseInt(regra.idRegra, 10);
+          const filtroId = Number.isFinite(idNum)
+            ? `IDREGRA = ${idNum}`
+            : `IDREGRA = '${escSql(regra.idRegra || '')}'`;
+
+          const filtros = [
+            this.FILTRO_PADRAO,
+            filtroId
+          ];
+
+          const addFiltro = (expr) => { if (expr) filtros.push(expr); };
+          if (hasVal(codcoligada)) addFiltro(`JSON_VALUE(RESULTADO, '$.ocorrencia.COLIGADA') = '${escSql(codcoligada)}'`);
+          if (hasVal(codPaciente)) addFiltro(`JSON_VALUE(RESULTADO, '$.ocorrencia.CODPACIENTE') = '${escSql(codPaciente)}'`);
+          if (hasVal(codatendimento)) addFiltro(`JSON_VALUE(RESULTADO, '$.ocorrencia.CODATENDIMENTO') = '${escSql(codatendimento)}'`);
+          if (hasVal(seqparcial)) addFiltro(`JSON_VALUE(RESULTADO, '$.ocorrencia.PARCIAL') = '${escSql(seqparcial)}'`);
+
+          const whereClause = filtros
+            .map((f, idx) => idx === 0
+              ? `          WHERE ${f}`
+              : `            AND ${f}`)
+            .join("\n");
+
+          const sql = `
+            WITH RESULTADO AS (
+              SELECT
+                R.IDREGRA,
+                JSON_VALUE(R.RESULTADO, '$.ocorrencia.COLIGADA')       AS COLIGADA,
+                JSON_VALUE(R.RESULTADO, '$.ocorrencia.PRONTUARIO')     AS PRONTUARIO,
+                JSON_VALUE(R.RESULTADO, '$.ocorrencia.CODPACIENTE')    AS CODPACIENTE,
+                JSON_VALUE(R.RESULTADO, '$.ocorrencia.CODATENDIMENTO') AS CODATENDIMENTO,
+                JSON_VALUE(R.RESULTADO, '$.ocorrencia.PARCIAL')        AS PARCIAL,
+                JSON_VALUE(R.RESULTADO, '$.ocorrencia.NOMEPACIENTE')   AS NOMEPACIENTE,
+                R.RESULTADO AS DETALHES,
+                R.STATUS,
+                R.OBSERVACAO,
+                R.HASHRESULTADO,
+                R.DATAEXECUCAO,
+                CONVERT(VARCHAR, R.DATAALTERACAO, 103) + ' ' + CONVERT(VARCHAR, R.DATAALTERACAO, 108) AS DATAALTERACAO,
+                R.USUARIOALTERACAO,
+                R.REGISTRO
+              FROM ZMD_BC_RESULTADO AS R
+${whereClause}
+            )
+            SELECT
+              IDREGRA,
+              COLIGADA,
+              PRONTUARIO,
+              CODPACIENTE,
+              CODATENDIMENTO,
+              PARCIAL,
+              NOMEPACIENTE,
+              COUNT(*) AS TOTAL,
+              SUM(CASE WHEN STATUS = 'D' THEN 1 ELSE 0 END) AS TOTAL_DESCARTADOS,
+              SUM(CASE WHEN STATUS = 'I' THEN 1 ELSE 0 END) AS TOTAL_INCONSISTENTES,
+              SUM(CASE WHEN STATUS = 'R' THEN 1 ELSE 0 END) AS TOTAL_RESOLVIDOS
+            FROM RESULTADO
+            GROUP BY
+              IDREGRA,
+              COLIGADA,
+              PRONTUARIO,
+              CODPACIENTE,
+              CODATENDIMENTO,
+              PARCIAL,
+              NOMEPACIENTE
+            ORDER BY NOMEPACIENTE;`;
+
+          console.log(`[ExecutarRegrasPaciente] SQL executada:\n`, sql);
+          const rows = this.queryRMConfig(sql) || [];
+          console.log(`[ExecutarRegrasPaciente] Registros retornados:`, rows.length);
+
+          const dataRows = rows.map(row => {
+            const C = toInt(row.COLIGADA);
+            const P = toInt(row.CODPACIENTE);
+            const A = toInt(row.CODATENDIMENTO);
+            const S = toInt(row.PARCIAL);
+            const total = parseInt(row.TOTAL || 0, 10);
+            const descartados = parseInt(row.TOTAL_DESCARTADOS || 0, 10);
+            const inconsistentes = parseInt(row.TOTAL_INCONSISTENTES || 0, 10);
+            const resolvidos = parseInt(row.TOTAL_RESOLVIDOS || 0, 10);
+            const finalizada = (descartados + inconsistentes + resolvidos) === total && total > 0;
+            const nomeComIcone = finalizada
+              ? `${row.NOMEPACIENTE || ""} <span class="conta-finalizada" title="Conta Finalizada">✅</span>`
+              : row.NOMEPACIENTE || "";
+
+            return [
+              C ?? "",
+              row.PRONTUARIO || "",
+              P ?? "",
+              A ?? "",
+              S ?? "",
+              nomeComIcone,
+              total,
+              descartados,
+              inconsistentes,
+              `<a href="#" class="detalhe-prescricao"
+               data-codcoligada="${C ?? ''}" data-codpaciente="${P ?? ''}"
+               data-codatendimento="${A ?? ''}" data-seqparcial="${S ?? ''}"
+               data-idregra="${regra.idRegra || ''}"
+               title="Ver Detalhes"><i class="fluigicon fluigicon-eye-open icon-md"></i></a>`
+            ];
+          });
+
+          const tbody = document.querySelector(`#tbl-regra-${regra.idRegra} tbody`);
+          if (tbody) tbody.innerHTML = "";
+          initDT(regra.idRegra, dataRows);
+        } catch (err) {
+          console.error(`[ExecutarRegrasPaciente] Erro ao montar dados da regra ${regra.idRegra}:`, err);
+          const tbody = document.querySelector(`#tbl-regra-${regra.idRegra} tbody`);
+          if (tbody) tbody.innerHTML = '<tr><td colspan="10" class="text-danger">Erro ao carregar dados.</td></tr>';
+        } finally {
+          console.groupEnd();
+        }
       };
       
       // executa em sequência para não travar a UI
