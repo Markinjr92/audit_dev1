@@ -2430,32 +2430,6 @@ abrirModalNovaRegra: function () {
           if (hasVal(codatendimento)) addFiltro(`JSON_VALUE(RESULTADO, '$.ocorrencia.CODATENDIMENTO') = '${escSql(codatendimento)}'`);
           if (hasVal(seqparcial)) addFiltro(`JSON_VALUE(RESULTADO, '$.ocorrencia.PARCIAL') = '${escSql(seqparcial)}'`);
 
-          const whereExtras = filtros.slice(1).map(f => `              AND ${f}`).join("\n");
-          const sql = `
-            SELECT
-              IDREGRA,
-              JSON_VALUE(RESULTADO, '$.ocorrencia.COLIGADA')       AS COLIGADA,
-              JSON_VALUE(RESULTADO, '$.ocorrencia.PRONTUARIO')     AS PRONTUARIO,
-              JSON_VALUE(RESULTADO, '$.ocorrencia.CODPACIENTE')    AS CODPACIENTE,
-              JSON_VALUE(RESULTADO, '$.ocorrencia.CODATENDIMENTO') AS CODATENDIMENTO,
-              JSON_VALUE(RESULTADO, '$.ocorrencia.PARCIAL')        AS PARCIAL,
-              JSON_VALUE(RESULTADO, '$.ocorrencia.NOMEPACIENTE')   AS NOMEPACIENTE,
-              COUNT(*) AS TOTAL,
-              SUM(CASE WHEN STATUS = 'D' THEN 1 ELSE 0 END) AS TOTAL_DESCARTADOS,
-              SUM(CASE WHEN STATUS = 'I' THEN 1 ELSE 0 END) AS TOTAL_INCONSISTENTES,
-              SUM(CASE WHEN STATUS = 'R' THEN 1 ELSE 0 END) AS TOTAL_RESOLVIDOS
-            FROM ZMD_BC_RESULTADO
-            WHERE ${this.FILTRO_PADRAO}
-${whereExtras}
-            GROUP BY
-              IDREGRA,
-              JSON_VALUE(RESULTADO, '$.ocorrencia.COLIGADA'),
-              JSON_VALUE(RESULTADO, '$.ocorrencia.PRONTUARIO'),
-              JSON_VALUE(RESULTADO, '$.ocorrencia.CODPACIENTE'),
-              JSON_VALUE(RESULTADO, '$.ocorrencia.CODATENDIMENTO'),
-              JSON_VALUE(RESULTADO, '$.ocorrencia.PARCIAL'),
-              JSON_VALUE(RESULTADO, '$.ocorrencia.NOMEPACIENTE')
-            ORDER BY JSON_VALUE(RESULTADO, '$.ocorrencia.NOMEPACIENTE');`;
 
           console.log(`[ExecutarRegrasPaciente] SQL executada:\n`, sql);
           const rows = this.queryRMConfig(sql) || [];
