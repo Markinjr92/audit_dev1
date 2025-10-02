@@ -291,6 +291,7 @@ ORDER BY NOMEPACIENTE, COLIGADA, PRONTUARIO, CODPACIENTE, CODATENDIMENTO, PARCIA
         console.log("[carregarPacientesInput] SQL executada:\n", sql);
 
         const rows = this.queryRMConfig(sql) || [];
+        console.log(`[carregarPacientesInput] Retorno SQL: ${rows.length} registros`, rows);
         if (!rows.length) {
           $sel.html('<option value="">Nenhum paciente encontrado</option>');
           finalize();
@@ -434,31 +435,31 @@ ORDER BY NOMEPACIENTE, COLIGADA, PRONTUARIO, CODPACIENTE, CODATENDIMENTO, PARCIA
           tr.dataset.idregra = rule.IDREGRAS || "";
       
           const natureza = (rule.CLASSIFICACAO || "").trim();
-          tr.innerHTML = `
-          <td style="text-align:center;">
+            tr.innerHTML = `
+            <td style="text-align:center;">
             <input type="checkbox" class="ruleCheckbox" title="Selecionar regra">
-          </td>
-          <td style="text-align:center;">
+            </td>
+            <td style="text-align:center;">
             <button class="btn btn-link btnShowQuery" data-idregra="${rule.IDREGRAS}"
               data-tituloregra="${rule.TITULOREGRA || ''}" 
               data-totalocorrencias="${rule.TOTALOCORRENCIAS || 0}" style="padding:0"
               title="Visualizar dados da regra">
             <i class="fluigicon fluigicon-eye-open icon-md" aria-hidden="true"></i>
             </button>
-          </td>
-          <td style="text-align:center; width:60px;">${rule.IDREGRAS || ""}</td>
-          <td title="${escHtml(rule.DESCRICAOREGRA || rule.TITULOREGRA || '')}">${rule.TITULOREGRA || ""}</td>
-          <td title="${natureza}">${natureza}</td>
-          <td style="text-align:center;">${rule.TOTALOCORRENCIAS || 0}</td>
-          <td style="text-align:center;">
+            </td>
+            <td style="text-align:center; width:60px;">${rule.IDREGRAS || ""}</td>
+            <td title="${escHtml(rule.DESCRICAOREGRA || '')}">${rule.TITULOREGRA || ""}</td>
+            <td title="${natureza}">${natureza}</td>
+            <td style="text-align:center;">${rule.TOTALOCORRENCIAS || 0}</td>
+            <td style="text-align:center;">
             <button class="btn btn-default btn-xs btnEditEmail"
               title="${rule.EMAILS || 'Nenhum e-mail cadastrado'}"
               style="border: none; background: none;"
               onclick="MyWidget.abrirEditorEmails('${rule.IDREGRAS}', '${rule.EMAILS || ''}', updatedEmail => { rule.EMAIL = updatedEmail; })">
             <i class="fluigicon fluigicon-envelope icon-md"></i>
             </button>
-          </td>
-          `;
+            </td>
+            `;
           tbody.appendChild(tr);
         });
         
@@ -2419,17 +2420,54 @@ abrirModalNovaRegra: function () {
             ? `IDREGRA = ${idNum}`
             : `IDREGRA = '${escSql(regra.idRegra || '')}'`;
 
-          const filtros = [
-            this.FILTRO_PADRAO,
-            filtroId
-          ];
-
-          const addFiltro = (expr) => { if (expr) filtros.push(expr); };
-          if (hasVal(codcoligada)) addFiltro(`JSON_VALUE(RESULTADO, '$.ocorrencia.COLIGADA') = '${escSql(codcoligada)}'`);
-          if (hasVal(codPaciente)) addFiltro(`JSON_VALUE(RESULTADO, '$.ocorrencia.CODPACIENTE') = '${escSql(codPaciente)}'`);
-          if (hasVal(codatendimento)) addFiltro(`JSON_VALUE(RESULTADO, '$.ocorrencia.CODATENDIMENTO') = '${escSql(codatendimento)}'`);
-          if (hasVal(seqparcial)) addFiltro(`JSON_VALUE(RESULTADO, '$.ocorrencia.PARCIAL') = '${escSql(seqparcial)}'`);
-
+          const sql = `
+            WITH RESULTADO AS (
+              SELECT
+          R.IDREGRA,
+          JSON_VALUE(R.RESULTADO, '$.ocorrencia.COLIGADA')       AS COLIGADA,
+          JSON_VALUE(R.RESULTADO, '$.ocorrencia.PRONTUARIO')     AS PRONTUARIO,
+          JSON_VALUE(R.RESULTADO, '$.ocorrencia.CODPACIENTE')    AS CODPACIENTE,
+          JSON_VALUE(R.RESULTADO, '$.ocorrencia.CODATENDIMENTO') AS CODATENDIMENTO,
+          JSON_VALUE(R.RESULTADO, '$.ocorrencia.PARCIAL')        AS PARCIAL,
+          JSON_VALUE(R.RESULTADO, '$.ocorrencia.NOMEPACIENTE')   AS NOMEPACIENTE,
+          R.RESULTADO AS DETALHES,
+          R.STATUS,
+          R.OBSERVACAO,
+          R.HASHRESULTADO,
+          R.DATAEXECUCAO,
+          CONVERT(VARCHAR, R.DATAALTERACAO, 103) + ' ' + CONVERT(VARCHAR, R.DATAALTERACAO, 108) AS DATAALTERACAO,
+          R.USUARIOALTERACAO,
+          R.REGISTRO
+              FROM ZMD_BC_RESULTADO AS R
+              WHERE ${filtroId}
+            )
+            SELECT
+              IDREGRA,
+              COLIGADA,
+              PRONTUARIO,
+              CODPACIENTE,
+              CODATENDIMENTO,
+              PARCIAL,
+              NOMEPACIENTE,
+              COUNT(*) AS TOTAL,
+              SUM(CASE WHEN STATUS = 'D' THEN 1 ELSE 0 END) AS TOTAL_DESCARTADOS,
+              SUM(CASE WHEN STATUS = 'I' THEN 1 ELSE 0 END) AS TOTAL_INCONSISTENTES,
+              SUM(CASE WHEN STATUS = 'R' THEN 1 ELSE 0 END) AS TOTAL_RESOLVIDOS
+            FROM RESULTADO
+            WHERE COLIGADA = '${escSql(codcoligada)}'
+              AND CODPACIENTE = '${escSql(codPaciente)}'
+              AND CODATENDIMENTO = '${escSql(codatendimento)}'
+              AND PARCIAL = '${escSql(seqparcial)}'
+              AND REGISTRO = 'A'
+            GROUP BY
+              IDREGRA,
+              COLIGADA,
+              PRONTUARIO,
+              CODPACIENTE,
+              CODATENDIMENTO,
+              PARCIAL,
+              NOMEPACIENTE
+            ORDER BY NOMEPACIENTE;`;
 
           console.log(`[ExecutarRegrasPaciente] SQL executada:\n`, sql);
           const rows = this.queryRMConfig(sql) || [];
