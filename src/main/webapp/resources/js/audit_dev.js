@@ -2430,55 +2430,6 @@ abrirModalNovaRegra: function () {
           if (hasVal(codatendimento)) addFiltro(`JSON_VALUE(RESULTADO, '$.ocorrencia.CODATENDIMENTO') = '${escSql(codatendimento)}'`);
           if (hasVal(seqparcial)) addFiltro(`JSON_VALUE(RESULTADO, '$.ocorrencia.PARCIAL') = '${escSql(seqparcial)}'`);
 
-          const whereClause = filtros
-            .map((f, idx) => idx === 0
-              ? `          WHERE ${f}`
-              : `            AND ${f}`)
-            .join("\n");
-
-          const sql = `
-            WITH RESULTADO AS (
-              SELECT
-                R.IDREGRA,
-                JSON_VALUE(R.RESULTADO, '$.ocorrencia.COLIGADA')       AS COLIGADA,
-                JSON_VALUE(R.RESULTADO, '$.ocorrencia.PRONTUARIO')     AS PRONTUARIO,
-                JSON_VALUE(R.RESULTADO, '$.ocorrencia.CODPACIENTE')    AS CODPACIENTE,
-                JSON_VALUE(R.RESULTADO, '$.ocorrencia.CODATENDIMENTO') AS CODATENDIMENTO,
-                JSON_VALUE(R.RESULTADO, '$.ocorrencia.PARCIAL')        AS PARCIAL,
-                JSON_VALUE(R.RESULTADO, '$.ocorrencia.NOMEPACIENTE')   AS NOMEPACIENTE,
-                R.RESULTADO AS DETALHES,
-                R.STATUS,
-                R.OBSERVACAO,
-                R.HASHRESULTADO,
-                R.DATAEXECUCAO,
-                CONVERT(VARCHAR, R.DATAALTERACAO, 103) + ' ' + CONVERT(VARCHAR, R.DATAALTERACAO, 108) AS DATAALTERACAO,
-                R.USUARIOALTERACAO,
-                R.REGISTRO
-              FROM ZMD_BC_RESULTADO AS R
-${whereClause}
-            )
-            SELECT
-              IDREGRA,
-              COLIGADA,
-              PRONTUARIO,
-              CODPACIENTE,
-              CODATENDIMENTO,
-              PARCIAL,
-              NOMEPACIENTE,
-              COUNT(*) AS TOTAL,
-              SUM(CASE WHEN STATUS = 'D' THEN 1 ELSE 0 END) AS TOTAL_DESCARTADOS,
-              SUM(CASE WHEN STATUS = 'I' THEN 1 ELSE 0 END) AS TOTAL_INCONSISTENTES,
-              SUM(CASE WHEN STATUS = 'R' THEN 1 ELSE 0 END) AS TOTAL_RESOLVIDOS
-            FROM RESULTADO
-            GROUP BY
-              IDREGRA,
-              COLIGADA,
-              PRONTUARIO,
-              CODPACIENTE,
-              CODATENDIMENTO,
-              PARCIAL,
-              NOMEPACIENTE
-            ORDER BY NOMEPACIENTE;`;
 
           console.log(`[ExecutarRegrasPaciente] SQL executada:\n`, sql);
           const rows = this.queryRMConfig(sql) || [];
